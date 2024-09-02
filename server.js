@@ -43,7 +43,7 @@ const pool = new Pool({
   port: 25808, // Default PostgreSQL port
   ssl: {
     rejectUnauthorized: true,
-    ca: fs.readFileSync("./ca.pem").toString(), // Path to Aiven CA certificate
+    ca: fs.readFileSync("./ca1.pem").toString(), // Path to Aiven CA certificate
   },
 });
 
