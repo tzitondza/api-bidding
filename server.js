@@ -35,6 +35,18 @@ app.use(bodyParser.json());
 //   port: 15473,
 // });
 
+const pool = new Pool({
+  host: "freedb-tzitondza-36bb.h.aivencloud.com", // Aiven hostname
+  user: "avnadmin", // Aiven username
+  password: "AVNS_N9A39n3jyM_lSyf6gij", // Aiven password
+  database: "defaultdb", // Aiven database name
+  port: 25808, // Default PostgreSQL port
+  ssl: {
+    rejectUnauthorized: true,
+    ca: fs.readFileSync("./key/ca.pem").toString(), // Path to Aiven CA certificate
+  },
+});
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/"); // Directory where files will be saved
