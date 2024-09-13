@@ -43,7 +43,7 @@ const pool = new Pool({
   port: 25808, // Default PostgreSQL port
   ssl: {
     rejectUnauthorized: true,
-    ca: fs.readFileSync("./ca1.pem").toString(), // Path to Aiven CA certificate
+    ca: fs.readFileSync("./key/ca.pem").toString(), // Path to Aiven CA certificate
   },
 });
 
@@ -58,18 +58,111 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const generateReferralCode = () => {
+  return Math.random().toString(36).substr(2, 10); // Simple random code generation
+};
+
 // User registration endpoint
+// app.post("/userRegistration", async (req, res) => {
+//   const { username, email, password, phone } = req.body;
+
+//   try {
+//     // Hash the password before storing it
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // Insert the new user into the database with the hashed password
+//     const result = await pool.query(
+//       "INSERT INTO users (username, email, password, phone) VALUES ($1, $2, $3, $4) RETURNING *",
+//       [username, email, hashedPassword, phone]
+//     );
+
+//     res.status(201).json(result.rows[0]);
+//   } catch (error) {
+//     console.error("Error inserting data:", error);
+//     res.status(500).json({ error: "Database insertion error" });
+//   }
+// });
+
+// app.post("/userRegistration", async (req, res) => {
+//   const { username, email, password, phone, referal_email } = req.body;
+
+//   try {
+//     // Hash the password before storing it
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // Insert the new user into the database with the hashed password and referralCode
+//     const result = await pool.query(
+//       "INSERT INTO users (username, email, password, phone, referral_code) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+//       [username, email, hashedPassword, phone, referal_email]
+//     );
+
+//     res.status(201).json(result.rows[0]);
+//   } catch (error) {
+//     console.error("Error inserting data:", error);
+//     res.status(500).json({ error: "Database insertion error" });
+//   }
+// });
+
 app.post("/userRegistration", async (req, res) => {
-  const { username, email, password, phone } = req.body;
+  const { username, email, password, phone, referal_email } = req.body;
 
   try {
+    // Check if the email or username already exists
+    const checkUserQuery =
+      "SELECT * FROM users WHERE email = $1 OR username = $2";
+    const checkUserResult = await pool.query(checkUserQuery, [email, username]);
+
+    if (checkUserResult.rows.length > 0) {
+      // If a user with the same email or username is found, return an error
+      return res
+        .status(400)
+        .json({ error: "Email or username already exists" });
+    }
+
     // Hash the password before storing it
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert the new user into the database with the hashed password
+    // Insert the new user into the database with the hashed password and referral email
+    const insertUserQuery =
+      "INSERT INTO users (username, email, password, phone, referral_code) VALUES ($1, $2, $3, $4, $5) RETURNING *";
+    const result = await pool.query(insertUserQuery, [
+      username,
+      email,
+      hashedPassword,
+      phone,
+      referal_email,
+    ]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error inserting data:", error);
+    res.status(500).json({ error: "Database insertion error" });
+  }
+});
+
+app.post("/userRegistrationRef", async (req, res) => {
+  const { username, email, password, phone, referralCode } = req.body;
+
+  try {
+    // Check if the email or username already exists
+    const checkUserQuery =
+      "SELECT * FROM users WHERE email = $1 OR username = $2";
+    const checkUserResult = await pool.query(checkUserQuery, [email, username]);
+
+    if (checkUserResult.rows.length > 0) {
+      // If a user with the same email or username is found, return an error
+      return res
+        .status(400)
+        .json({ error: "Email or username already exists" });
+    }
+
+    // Hash the password before storing it
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert the new user into the database with the hashed password and referralCode
     const result = await pool.query(
-      "INSERT INTO users (username, email, password, phone) VALUES ($1, $2, $3, $4) RETURNING *",
-      [username, email, hashedPassword, phone]
+      "INSERT INTO users (username, email, password, phone, referral_code) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [username, email, hashedPassword, phone, referralCode]
     );
 
     res.status(201).json(result.rows[0]);
@@ -266,10 +359,150 @@ app.post("/userProfile", async (req, res) => {
       "SELECT username, email, phone FROM users WHERE email = $1",
       [userId]
     );
+
+    // if (!result.referral_code) {
+    //   const newReferralCode = generateReferralCode();
+    //   await pool.query("UPDATE users SET referral_code = $1 WHERE email = $2", [
+    //     newReferralCode,
+    //     userId,
+    //   ]);
+    //   result.referral_code = newReferralCode; // Update the response
+    // }
+
     res.json(result.rows[0]);
   } catch (error) {
     console.error("Error fetching user profile:", error); // Added error logging
     res.status(500).json({ message: "Error fetching user profile" });
+  }
+});
+
+app.post("/generateReferral", async (req, res) => {
+  const { email } = req.body; // Get the user's email from the request body
+
+  try {
+    const referralCode = generateReferralCode(); // Generate the referral code
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // Set expiration to 5 minutes from now
+    // const expiresAt = new Date(Date.now() + 10 * 1000); // Set expiration to 10 seconds from now
+
+    // Insert the referral into the database
+    await pool.query(
+      `INSERT INTO referrals (email, referral_code, expires_at) 
+       VALUES ($1, $2, $3)`,
+      [email, referralCode, expiresAt]
+    );
+
+    // Respond with the generated referral code
+    res.status(201).json({ referralCode });
+  } catch (error) {
+    console.error("Error generating referral:", error);
+    res.status(500).json({ message: "Error generating referral" });
+  }
+});
+
+app.get("/referral/:code", async (req, res) => {
+  const { code } = req.params;
+
+  try {
+    const result = await pool.query(
+      "SELECT * FROM referrals WHERE referral_code = $1",
+      [code]
+    );
+
+    const referral = result.rows[0];
+
+    if (!referral) {
+      return res.status(404).send("Invalid referral code.");
+    }
+
+    // Check if the link has expired
+    const now = new Date();
+    if (now > new Date(referral.expires_at)) {
+      return res.status(410).send("Referral link has expired.");
+    }
+
+    // Check if the link has already been used
+    if (referral.is_used) {
+      return res.status(400).send("Referral link has already been used.");
+    }
+
+    // Redirect to the login page with the referral code
+    res.redirect(`/login?referral=${code}`);
+  } catch (error) {
+    console.error("Error processing referral:", error);
+    res.status(500).send("Internal server error.");
+  }
+});
+
+app.post("/saveReferral", async (req, res) => {
+  const { email, referralCode } = req.body;
+
+  if (!email || !referralCode) {
+    return res.status(400).json({ message: "Missing email or referral code" });
+  }
+
+  try {
+    // Find the referral
+    const result = await pool.query(
+      "SELECT * FROM referrals WHERE referral_code = $1",
+      [referralCode]
+    );
+
+    const referral = result.rows[0];
+
+    // Check if the link has expired
+    const now = new Date();
+    if (now > new Date(referral.expires_at)) {
+      return res.status(410).json({ message: "Referral link has expired." });
+    }
+
+    // Check if the link has already been used
+    if (referral.is_used) {
+      return res
+        .status(400)
+        .json({ message: "Referral link has already been used." });
+    }
+
+    // Update the referral with the referred email and mark it as used
+    await pool.query(
+      "UPDATE referrals SET referred_email = $1, is_used = TRUE WHERE referral_code = $2",
+      [email, referralCode]
+    );
+
+    res.status(200).json({ message: "Referral completed successfully" });
+  } catch (error) {
+    console.error("Error saving referral:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.post("/checkReferral", async (req, res) => {
+  const { referralCode } = req.body;
+
+  try {
+    const result = await pool.query(
+      "SELECT expires_at FROM referrals WHERE referral_code = $1",
+      [referralCode]
+    );
+
+    if (result.rows.length === 0) {
+      return res
+        .status(404)
+        .json({ expired: true, message: "Invalid referral code" });
+    }
+
+    const expiresAt = new Date(result.rows[0].expires_at);
+    const now = new Date();
+
+    if (now > expiresAt) {
+      return res.json({ expired: true });
+    }
+
+    res.json({ expired: false });
+  } catch (error) {
+    console.error("Error checking referral code:", error);
+    res
+      .status(500)
+      .json({ expired: true, message: "Error checking referral code" });
   }
 });
 
