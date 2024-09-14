@@ -433,6 +433,48 @@ app.get("/referral/:code", async (req, res) => {
   }
 });
 
+// app.post("/saveReferral", async (req, res) => {
+//   const { email, referralCode } = req.body;
+
+//   if (!email || !referralCode) {
+//     return res.status(400).json({ message: "Missing email or referral code" });
+//   }
+
+//   try {
+//     // Find the referral
+//     const result = await pool.query(
+//       "SELECT * FROM referrals WHERE referral_code = $1",
+//       [referralCode]
+//     );
+
+//     const referral = result.rows[0];
+
+//     // Check if the link has expired
+//     const now = new Date();
+//     if (now > new Date(referral.expires_at)) {
+//       return res.status(410).json({ message: "Referral link has expired." });
+//     }
+
+//     // Check if the link has already been used
+//     if (referral.is_used) {
+//       return res
+//         .status(400)
+//         .json({ message: "Referral link has already been used." });
+//     }
+
+//     // Update the referral with the referred email and mark it as used
+//     await pool.query(
+//       "UPDATE referrals SET referred_email = $1, is_used = TRUE WHERE referral_code = $2",
+//       [email, referralCode]
+//     );
+
+//     res.status(200).json({ message: "Referral completed successfully" });
+//   } catch (error) {
+//     console.error("Error saving referral:", error);
+//     res.status(500).json({ message: "Internal server error" });
+//   }
+// });
+
 app.post("/saveReferral", async (req, res) => {
   const { email, referralCode } = req.body;
 
@@ -441,7 +483,7 @@ app.post("/saveReferral", async (req, res) => {
   }
 
   try {
-    // Find the referral
+    // Find the referral by referral code
     const result = await pool.query(
       "SELECT * FROM referrals WHERE referral_code = $1",
       [referralCode]
@@ -449,17 +491,34 @@ app.post("/saveReferral", async (req, res) => {
 
     const referral = result.rows[0];
 
+    // Check if the referral exists
+    if (!referral) {
+      return res.status(404).json({ message: "Referral not found." });
+    }
+
     // Check if the link has expired
     const now = new Date();
     if (now > new Date(referral.expires_at)) {
       return res.status(410).json({ message: "Referral link has expired." });
     }
 
-    // Check if the link has already been used
+    // Check if the referral link has already been used
     if (referral.is_used) {
       return res
         .status(400)
         .json({ message: "Referral link has already been used." });
+    }
+
+    // Check if the email has already been referred
+    const emailCheck = await pool.query(
+      "SELECT * FROM referrals WHERE referred_email = $1",
+      [email]
+    );
+
+    if (emailCheck.rows.length > 0) {
+      return res
+        .status(400)
+        .json({ message: "Email has already been referred." });
     }
 
     // Update the referral with the referred email and mark it as used
@@ -614,6 +673,46 @@ app.post("/getDocuments", async (req, res) => {
   } catch (error) {
     console.error("Error fetching document statuses:", error);
     res.status(500).json({ message: "Error fetching document statuses" });
+  }
+});
+
+app.post("/saveBankingDetails", async (req, res) => {
+  const { cardNumber, cardHolder, expirationDate, cvv, email } = req.body;
+
+  try {
+    // Insert banking details into the database
+    const result = await pool.query(
+      "INSERT INTO banking_details (email, card_number, card_holder, expiration_date, cvv) VALUES ($1, $2, $3, $4, $5)",
+      [email, cardNumber, cardHolder, expirationDate, cvv]
+    );
+
+    res.status(200).json({ message: "Banking details saved successfully" });
+  } catch (err) {
+    console.error("Error saving banking details:", err);
+    res.status(500).json({ message: "Failed to save banking details" });
+  }
+});
+
+app.get("/getBankingDetails", async (req, res) => {
+  const { email } = req.query;
+
+  try {
+    const result = await pool.query(
+      "SELECT card_number, card_holder, expiration_date, cvv, verification_status FROM banking_details WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length > 0) {
+      res.json({
+        bankingDetails: result.rows[0],
+        verificationStatus: result.rows[0].verification_status,
+      });
+    } else {
+      res.json({ bankingDetails: null, verificationStatus: "" });
+    }
+  } catch (err) {
+    console.error("Error fetching banking details:", err);
+    res.status(500).send("Internal Server Error");
   }
 });
 
