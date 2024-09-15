@@ -716,6 +716,44 @@ app.get("/getBankingDetails", async (req, res) => {
   }
 });
 
+//get all users admin
+app.get("/usersAdmin", async (req, res) => {
+  try {
+    const users = await pool.query("SELECT * FROM users");
+    res.json(users.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// Verify user
+app.put("/usersAdmin/verify/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "UPDATE users SET is_verified = TRUE, verification_date = NOW() WHERE id = $1 RETURNING *",
+      [id]
+    );
+    res.json(result.rows[0]); // Send back the updated user data
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
+// Delete user
+app.delete("/usersAdmin/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("DELETE FROM users WHERE id = $1", [id]);
+    res.json({ message: "User deleted" });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
