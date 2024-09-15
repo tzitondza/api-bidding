@@ -856,7 +856,7 @@ app.put("/updateUserEmail", async (req, res) => {
     });
 
     // Generate a link with the token
-    const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
+    const verificationLink = `https://biding-7201c.web.app/verify-email?token=${token}`; // Replace with your actual domain
 
     // Send email with the verification link
     await transporter.sendMail({
