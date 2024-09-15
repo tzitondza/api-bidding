@@ -56,7 +56,7 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage: multer.memoryStorage() });
 
 const generateReferralCode = () => {
   return Math.random().toString(36).substr(2, 10); // Simple random code generation
@@ -676,29 +676,52 @@ app.post("/getDocuments", async (req, res) => {
   }
 });
 
-app.post("/saveBankingDetails", async (req, res) => {
-  const { cardNumber, cardHolder, expirationDate, cvv, email } = req.body;
+// app.post("/saveBankingDetails", async (req, res) => {
+//   const { cardNumber, cardHolder, expirationDate, cvv, email } = req.body;
 
-  try {
-    // Insert banking details into the database
-    const result = await pool.query(
-      "INSERT INTO banking_details (email, card_number, card_holder, expiration_date, cvv) VALUES ($1, $2, $3, $4, $5)",
-      [email, cardNumber, cardHolder, expirationDate, cvv]
-    );
+//   try {
+//     // Insert banking details into the database
+//     const result = await pool.query(
+//       "INSERT INTO banking_details (email, card_number, card_holder, expiration_date, cvv) VALUES ($1, $2, $3, $4, $5)",
+//       [email, cardNumber, cardHolder, expirationDate, cvv]
+//     );
 
-    res.status(200).json({ message: "Banking details saved successfully" });
-  } catch (err) {
-    console.error("Error saving banking details:", err);
-    res.status(500).json({ message: "Failed to save banking details" });
+//     res.status(200).json({ message: "Banking details saved successfully" });
+//   } catch (err) {
+//     console.error("Error saving banking details:", err);
+//     res.status(500).json({ message: "Failed to save banking details" });
+//   }
+// });
+
+app.post(
+  "/saveBankingDetails",
+  upload.single("bankStatement"),
+  async (req, res) => {
+    const { accountNumber, bankName, accountHolder, email } = req.body;
+    const bankStatement = req.file ? req.file.buffer : null; // File buffer
+
+    try {
+      // Insert banking details into the database
+      await pool.query(
+        `INSERT INTO banking_details (email, account_number, bank_name, account_holder, bank_statement) 
+       VALUES ($1, $2, $3, $4, $5)`,
+        [email, accountNumber, bankName, accountHolder, bankStatement]
+      );
+
+      res.status(200).json({ message: "Banking details saved successfully" });
+    } catch (err) {
+      console.error("Error saving banking details:", err);
+      res.status(500).json({ message: "Failed to save banking details" });
+    }
   }
-});
+);
 
 app.get("/getBankingDetails", async (req, res) => {
   const { email } = req.query;
 
   try {
     const result = await pool.query(
-      "SELECT card_number, card_holder, expiration_date, cvv, verification_status FROM banking_details WHERE email = $1",
+      "SELECT account_number, bank_name, account_holder FROM banking_details WHERE email = $1",
       [email]
     );
 
@@ -751,6 +774,151 @@ app.delete("/usersAdmin/:id", async (req, res) => {
   } catch (err) {
     console.error(err.message);
     res.status(500).send("Server error");
+  }
+});
+
+// API to get auction slots
+app.get("/auction-slots", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM auction_slots");
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching auction slots:", error);
+    res.status(500).send("Server error");
+  }
+});
+
+// Update user endpoint
+// app.put('/updateUserEmail', async (req, res) => {
+//     const { email } = req.body; // Extract email from request body
+//     const token = crypto.randomBytes(20).toString('hex'); // Generate random token
+
+//     try {
+//         // Update user status and token in the database
+//         const result = await pool.query(
+//             'UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *',
+//             [token, email]
+//         );
+
+//         if (result.rowCount === 0) {
+//             return res.status(404).json({ error: 'User not found' });
+//         }
+
+//         // Setup email transporter
+//         const transporter = nodemailer.createTransport({
+//             service: "Gmail",
+//             auth: {
+//                 user: "khanyadlamini22@gmail.com",  // Your email
+//                 pass: "giak jrxb qlnl kyhy",        // Your app-specific password
+//             },
+//         });
+
+//         // Generate a link with the token
+//         const getLink = `http://${token}`;  // Replace with actual link in production
+
+//         // Send email with the verification link
+//         await transporter.sendMail({
+//             to: email,
+//             subject: 'Email Verification: Auctions',
+//             text: `Click the link to verify your email at Auctions: ${getLink}`,
+//         });
+
+//         // Respond with a success message
+//         res.json({ message: 'Verification email sent!' });
+//     } catch (error) {
+//         console.error('Error updating user:', error);
+//         res.status(500).json({ error: 'Internal server error' });
+//     }
+// });
+
+app.put("/updateUserEmail", async (req, res) => {
+  const { email } = req.body; // Extract email from request body
+  const token = crypto.randomBytes(20).toString("hex"); // Generate random token
+
+  try {
+    // Update user email_code in the database
+    const result = await pool.query(
+      "UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *",
+      [token, email]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Setup email transporter
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: "khanyadlamini22@gmail.com", // Your email
+        pass: "giak jrxb qlnl kyhy", // Your app-specific password
+      },
+    });
+
+    // Generate a link with the token
+    const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
+
+    // Send email with the verification link
+    await transporter.sendMail({
+      to: email,
+      subject: "Email Verification: Auctions",
+      text: `Click the link to verify your email on Acution: ${verificationLink}`,
+    });
+
+    // Respond with a success message
+    res.json({ message: "Verification email sent!" });
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/verify-email", async (req, res) => {
+  const { token } = req.query; // Extract token from query string
+
+  try {
+    // Find user with the given token
+    const result = await pool.query(
+      "UPDATE users SET email_verification_status = TRUE WHERE email_code = $1 RETURNING *",
+      [token]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(400).json({ error: "Invalid or expired token" });
+    }
+
+    // Respond with a success message
+    // res.redirect("http://localhost:5173/verification-success");
+    res.status(200).send("Email successfully verified. You can now log in.");
+  } catch (error) {
+    console.error("Error verifying email:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/get-email-status", async (req, res) => {
+  try {
+    const { userId } = req.body; // Destructure userId from req.body
+    console.log("Received userId:", userId); // Correct logging
+
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    const result = await pool.query(
+      "SELECT email_verification_status FROM users WHERE email = $1",
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const emailVerified = result.rows[0].email_verification_status;
+    res.json({ status: emailVerified ? "verified" : "pending" });
+  } catch (error) {
+    console.error("Error fetching status:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
