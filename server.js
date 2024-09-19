@@ -8,6 +8,10 @@ const nodemailer = require("nodemailer");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+// const twilio = require("twilio");
+// const accountSid = "a4e54f640c6c841da563049b4989c6c9";
+// const authToken = "AC47f8d91a5aa4ce2f338fc17c25b892a9";
+// const client = new twilio(accountSid, authToken);
 
 const app = express();
 const port = 5000;
@@ -61,6 +65,19 @@ const upload = multer({ storage: multer.memoryStorage() });
 const generateReferralCode = () => {
   return Math.random().toString(36).substr(2, 10); // Simple random code generation
 };
+
+// const sendVerificationLink = (phoneNumber, verificationLink) => {
+//   client.messages
+//     .create({
+//       body: `Click the link to verify your phone: ${verificationLink}`, // SMS message with the verification link
+//       from: "+your_twilio_phone_number", // Your Twilio phone number
+//       to: phoneNumber, // Recipient's phone number
+//     })
+//     .then((message) =>
+//       console.log(`Verification SMS sent! Message SID: ${message.sid}`)
+//     )
+//     .catch((error) => console.error("Error sending SMS:", error));
+// };
 
 // User registration endpoint
 // app.post("/userRegistration", async (req, res) => {
@@ -250,12 +267,12 @@ app.delete("/deleteUser/:id", async (req, res) => {
 // Update user endpoint
 app.put("/updateUser/:id", async (req, res) => {
   const { id } = req.params;
-  const { username, email } = req.body;
+  const { username, phone } = req.body;
 
   try {
     const result = await pool.query(
-      "UPDATE users SET username = $1, email = $2 WHERE id = $3 RETURNING *",
-      [username, email, id]
+      "UPDATE users SET username = $1, phone = $2 WHERE email = $3 RETURNING *",
+      [username, phone, id]
     );
 
     if (result.rowCount === 0) {
@@ -265,6 +282,86 @@ app.put("/updateUser/:id", async (req, res) => {
     res.json(result.rows[0]);
   } catch (error) {
     console.error("Error updating user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// app.put("/updatePassword/:id", async (req, res) => {
+//   const { id } = req.params;
+//   const { current, newPassword } = req.body;
+
+//   console.log("Data receval", current, newPassword);
+
+//   try {
+//     // Fetch the user from the database by ID
+//     const userResult = await pool.query(
+//       "SELECT password FROM users WHERE email = $1",
+//       [id]
+//     );
+
+//     if (userResult.rowCount === 0) {
+//       return res.status(404).json({ error: "User not found" });
+//     }
+
+//     const user = userResult.rows[0];
+
+//     // Compare the provided current password with the stored hashed password
+//     const isMatch = await bcrypt.compare(current, user.password);
+
+//     if (!isMatch) {
+//       return res.status(400).json({ error: "Current password is incorrect" });
+//     }
+
+//     // Hash the new password
+//     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+//     // Update the password in the database
+//     const updateResult = await pool.query(
+//       "UPDATE users SET password = $1 WHERE email = $2 RETURNING *",
+//       [hashedNewPassword, id]
+//     );
+
+//     res.json({ message: "Password updated successfully" });
+//   } catch (error) {
+//     console.error("Error updating password:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
+
+app.put("/updatePassword/:id", async (req, res) => {
+  const { id } = req.params;
+  const { current, newPassword } = req.body;
+
+  try {
+    const userResult = await pool.query(
+      "SELECT password FROM users WHERE email = $1",
+      [id]
+    );
+
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = userResult.rows[0];
+
+    const isMatch = await bcrypt.compare(current, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ error: "Current password is incorrect" });
+    }
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    const updateResult = await pool.query(
+      "UPDATE users SET password = $1 WHERE email = $2 RETURNING *",
+      [hashedNewPassword, id]
+    );
+
+    if (updateResult.rowCount === 0) {
+      console.log("Failed to update password");
+      return res.status(500).json({ error: "Failed to update password" });
+    }
+
+    res.status(200).json({ message: "Password updated successfully" });
+  } catch (error) {
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -856,7 +953,7 @@ app.put("/updateUserEmail", async (req, res) => {
     });
 
     // Generate a link with the token
-    const verificationLink = `https://biding-7201c.web.app/verify-email?token=${token}`; // Replace with your actual domain
+    const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
 
     // Send email with the verification link
     await transporter.sendMail({
