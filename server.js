@@ -8,6 +8,7 @@ const nodemailer = require("nodemailer");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { v4: uuidv4 } = require("uuid");
 // const twilio = require("twilio");
 // const accountSid = "a4e54f640c6c841da563049b4989c6c9";
 // const authToken = "AC47f8d91a5aa4ce2f338fc17c25b892a9";
@@ -663,21 +664,21 @@ app.post("/checkReferral", async (req, res) => {
 });
 
 // server.js or routes/transactions.js
-app.post("/transactionHistory", async (req, res) => {
-  const { userId } = req.body; // Extract userId from request body
-  console.log("get here.....", userId); // Debug logging to check if userId is received
+// app.post("/transactionHistory", async (req, res) => {
+//   const { userId } = req.body; // Extract userId from request body
+//   console.log("get here.....", userId); // Debug logging to check if userId is received
 
-  try {
-    const result = await pool.query(
-      "SELECT * FROM transactions WHERE user_id = $1",
-      [userId]
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching transaction history:", error); // Added error logging
-    res.status(500).json({ message: "Error fetching transaction history" });
-  }
-});
+//   try {
+//     const result = await pool.query(
+//       "SELECT * FROM transactions WHERE user_id = $1",
+//       [userId]
+//     );
+//     res.json(result.rows);
+//   } catch (error) {
+//     console.error("Error fetching transaction history:", error); // Added error logging
+//     res.status(500).json({ message: "Error fetching transaction history" });
+//   }
+// });
 
 app.post("/uploadDocument", upload.single("document"), async (req, res) => {
   const { documentType, userId } = req.body;
@@ -1016,6 +1017,180 @@ app.post("/get-email-status", async (req, res) => {
   } catch (error) {
     console.error("Error fetching status:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// app.post("/api/initiate-payment", async (req, res) => {
+//   const { email, amount } = req.body;
+
+//   try {
+//     // Make request to third-party payment service (e.g., Luna) to generate payment URL
+//     // Assuming the payment service API requires `amount` and a callback URL
+
+//     const paymentUrl = `https://third-party-payment.com/pay?amount=${amount}&callback_url=https://your-app.com/payment-callback`;
+
+//     // Send the payment URL to the frontend to redirect the user
+//     res.json({ paymentUrl });
+//   } catch (error) {
+//     res.status(500).json({ error: "Payment initiation failed" });
+//   }
+// });
+
+// Handle the payment callback from third-party service
+// router.get('/payment-callback', async (req, res) => {
+//   const { paymentStatus, paymentReference, amount } = req.query;
+
+//   if (paymentStatus === 'success') {
+
+//     const email = "user@example.com";
+//     const auctionSlot = "auction-id";
+
+//     const query = `
+//       INSERT INTO auction_table (user_email, auction_slot, joining_amount, amount_to_be_paid, payment_reference, timestamp)
+//       VALUES ($1, $2, $3, $4, $5, NOW())
+//     `;
+//     const values = [email, auctionSlot, amount, amount, paymentReference];
+
+//     try {
+//       await db.query(query, values);
+//       res.redirect(`/auction-success?ref=${paymentReference}`);
+//     } catch (error) {
+//       console.error('Error inserting into auction table:', error);
+//       res.redirect(`/auction-failure?error=database`);
+//     }
+//   } else {
+//     res.redirect(`/auction-failure?error=payment_failed`);
+//   }
+// });
+
+app.post("/api/join-auction", async (req, res) => {
+  const { email, amount, auctionSlot } = req.body;
+
+  const paymentReference = uuidv4();
+
+  const query = `
+    INSERT INTO auction_table (user_email, auction_slot, joining_amount, amount_to_be_paid, payment_reference, timestamp)
+    VALUES ($1, $2, $3, $4, $5, NOW())
+  `;
+  const values = [email, auctionSlot, amount, amount, paymentReference];
+
+  try {
+    await pool.query(query, values);
+
+    res.status(200).json({
+      message: "Successfully joined the auction",
+      paymentReference: paymentReference,
+    });
+  } catch (error) {
+    console.error("Error inserting into auction_table:", error);
+    res.status(500).json({ error: "Error joining auction" });
+  }
+});
+
+// app.get("/api/people-to-pay", async (req, res) => {
+//   const { amount } = req.query;
+
+//   // Fetch all people with prices from auction_table
+//   const query = `SELECT * FROM auction_table WHERE amount_to_be_paid <= $1 ORDER BY amount_to_be_paid DESC`;
+//   try {
+//     const result = await pool.query(query, [amount]);
+//     res.status(200).json(result.rows);
+//   } catch (error) {
+//     console.error("Error fetching people from auction_table:", error);
+//     res.status(500).json({ error: "Failed to fetch people" });
+//   }
+// });
+
+app.get("/api/people-to-pay", async (req, res) => {
+  const { amount, email } = req.query;
+  const targetAmount = parseInt(amount);
+
+  console.log(`email:`, email);
+  console.log(`amount:`, amount);
+
+  // Define a percentage range for the total (e.g., ±5%)
+  const rangePercentage = 0.05; // 5% range
+  const minAmount = targetAmount * (1 - rangePercentage);
+  const maxAmount = targetAmount * (1 + rangePercentage);
+
+  console.log(`Target amount: ${targetAmount}`);
+  console.log(`Allowed range: Min = ${minAmount}, Max = ${maxAmount}`);
+  console.log(`Excluding user with email: ${email}`);
+
+  // Query to select people to pay, excluding the current user
+  const query = `
+    SELECT id, user_email, amount_to_be_paid 
+    FROM auction_table
+    WHERE user_email != $1 -- Exclude the current user's email
+    ORDER BY amount_to_be_paid DESC;
+  `;
+
+  try {
+    // Fetch all people from the auction_table excluding the current user
+    const result = await pool.query(query, [email]);
+
+    console.log(`Number of people found: ${result.rows.length}`);
+    console.log(`People fetched from auction_table:`, result.rows);
+
+    const people = result.rows;
+
+    if (people.length < 3) {
+      console.log("Not enough people available for payment.");
+      return res
+        .status(404)
+        .json({ error: "Not enough people available for payment." });
+    }
+
+    // Function to find combinations of 3 people whose total is within the allowed range
+    const findMatchingCombination = (people, minAmount, maxAmount) => {
+      console.log("Searching for combinations...");
+      for (let i = 0; i < people.length - 2; i++) {
+        for (let j = i + 1; j < people.length - 1; j++) {
+          for (let k = j + 1; k < people.length; k++) {
+            // Convert `amount_to_be_paid` to numbers and sum them
+            const sum =
+              Number(people[i].amount_to_be_paid) +
+              Number(people[j].amount_to_be_paid) +
+              Number(people[k].amount_to_be_paid);
+
+            // Log the details of the current combination and sum
+            console.log(
+              `Trying combination: [${people[i].id}, ${people[j].id}, ${people[k].id}] - Total: ${sum}`
+            );
+
+            // Check if the sum is within the allowed range
+            if (sum >= minAmount && sum <= maxAmount) {
+              console.log(
+                `Matching combination found: [${people[i].id}, ${people[j].id}, ${people[k].id}] with sum = ${sum}`
+              );
+              return [people[i], people[j], people[k]]; // Return the matching combination
+            }
+          }
+        }
+      }
+      console.log("No matching combination found.");
+      return null; // No combination found
+    };
+
+    // Try to find 3 people whose amounts sum up to within the allowed range
+    const matchingPeople = findMatchingCombination(
+      people,
+      minAmount,
+      maxAmount
+    );
+
+    if (!matchingPeople) {
+      console.log("No matching people found within the range.");
+      return res
+        .status(404)
+        .json({ error: "No matching people found within the given range." });
+    }
+
+    console.log("Selected people:", matchingPeople);
+    res.status(200).json(matchingPeople); // Return the selected people
+  } catch (error) {
+    console.error("Error fetching people from auction_table:", error);
+    res.status(500).json({ error: "Failed to fetch people" });
   }
 });
 
