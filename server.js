@@ -401,7 +401,7 @@ app.post("/sendResetLink", async (req, res) => {
     );
 
     // Send email with reset link
-    const resetLink = `https://biding-7201c.web.app/reset/`;
+    const resetLink = `https://biding-7201c.web.app/reset?token=${token}`;
     await transporter.sendMail({
       to: email,
       subject: "Password Reset",
@@ -452,7 +452,7 @@ app.post("/sendResetLink", async (req, res) => {
 // });
 
 app.post("/resetPassword", async (req, res) => {
-  const { password } = req.body;
+  const { password, token } = req.body;
 
   console.log("I reach here.....trying to reset password", token, password);
 
@@ -1017,8 +1017,8 @@ app.put("/updateUserEmail", async (req, res) => {
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
-        user: "khanyadlamini22@gmail.com", // Your email
-        pass: "giak jrxb qlnl kyhy", // Your app-specific password
+        user: "tzitondza@gmail.com", // Your email
+        pass: "betv haka nufm ugbn", // Your app-specific password
       },
     });
 
