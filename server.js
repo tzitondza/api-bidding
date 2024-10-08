@@ -67,6 +67,8 @@ const generateReferralCode = () => {
   return Math.random().toString(36).substr(2, 10); // Simple random code generation
 };
 
+const token = crypto.randomBytes(20).toString("hex");
+
 // const sendVerificationLink = (phoneNumber, verificationLink) => {
 //   client.messages
 //     .create({
@@ -371,8 +373,8 @@ app.put("/updatePassword/:id", async (req, res) => {
 const transporter = nodemailer.createTransport({
   service: "Gmail",
   auth: {
-    user: "khanyadlamini22@gmail.com",
-    pass: "giak jrxb qlnl kyhy",
+    user: "tzitondza@gmail.com",
+    pass: "betv haka nufm ugbn",
   },
 });
 
@@ -399,7 +401,7 @@ app.post("/sendResetLink", async (req, res) => {
     );
 
     // Send email with reset link
-    const resetLink = `http://localhost:5173/reset/`;
+    const resetLink = `https://biding-7201c.web.app/reset/`;
     await transporter.sendMail({
       to: email,
       subject: "Password Reset",
@@ -413,9 +415,46 @@ app.post("/sendResetLink", async (req, res) => {
   }
 });
 
+// app.post("/resetPassword", async (req, res) => {
+//   const { token, password } = req.body;
+//   console.log("I reach here.....", token, password);
+
+//   try {
+//     // Validate token
+//     const result = await pool.query(
+//       "SELECT user_id FROM password_resets WHERE token = $1 AND expires_at > NOW()",
+//       [token]
+//     );
+
+//     if (result.rows.length === 0) {
+//       return res.status(400).json({ error: "Invalid or expired token" });
+//     }
+
+//     const userId = result.rows[0].user_id;
+
+//     // Hash the new password
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // Update user's password
+//     await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+//       hashedPassword,
+//       userId,
+//     ]);
+
+//     // Delete the token
+//     await pool.query("DELETE FROM password_resets WHERE token = $1", [token]);
+
+//     res.status(200).json({ message: "Password reset successfully" });
+//   } catch (error) {
+//     console.error("Error resetting password:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
+
 app.post("/resetPassword", async (req, res) => {
-  const { token, password } = req.body;
-  console.log("I reach here.....", token, password);
+  const { password } = req.body;
+
+  console.log("I reach here.....trying to reset password", token, password);
 
   try {
     // Validate token
@@ -795,15 +834,19 @@ app.post(
   "/saveBankingDetails",
   upload.single("bankStatement"),
   async (req, res) => {
-    const { accountNumber, bankName, accountHolder, email } = req.body;
-    const bankStatement = req.file ? req.file.buffer : null; // File buffer
+    const { email, erc20_address, verification_layer } = req.body;
+    const verification_status = false;
+
+    console.log(`erc20_address:`, erc20_address);
+    console.log(`verification_layer:`, verification_layer);
+    console.log(`email:`, email);
 
     try {
       // Insert banking details into the database
       await pool.query(
-        `INSERT INTO banking_details (email, account_number, bank_name, account_holder, bank_statement) 
-       VALUES ($1, $2, $3, $4, $5)`,
-        [email, accountNumber, bankName, accountHolder, bankStatement]
+        `INSERT INTO payment_verification (erc20_address, verification_layer, email, verification_status) 
+       VALUES ($1, $2, $3, $4)`,
+        [erc20_address, verification_layer, email, verification_status]
       );
 
       res.status(200).json({ message: "Banking details saved successfully" });
@@ -813,6 +856,32 @@ app.post(
     }
   }
 );
+
+app.post("/savePaymentDetails", async (req, res) => {
+  // Check the incoming request body
+  console.log("Request Body:", req.body);
+
+  const { erc20_address, verification_layer, email } = req.body;
+  const verification_status = false; // Default verification status
+
+  console.log(`erc20_address:`, erc20_address);
+  console.log(`verification_layer:`, verification_layer);
+  console.log(`email:`, email);
+
+  try {
+    // Insert payment details into the database
+    await pool.query(
+      `INSERT INTO payment_verification (erc20_address, verification_layer, email, verification_status) 
+       VALUES ($1, $2, $3, $4)`,
+      [erc20_address, verification_layer, email, verification_status]
+    );
+
+    res.status(200).json({ message: "Payment details saved successfully" });
+  } catch (err) {
+    console.error("Error saving payment details:", err);
+    res.status(500).json({ message: "Failed to save payment details" });
+  }
+});
 
 app.get("/getBankingDetails", async (req, res) => {
   const { email } = req.query;
