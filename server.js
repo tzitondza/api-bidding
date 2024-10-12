@@ -405,7 +405,60 @@ app.post("/sendResetLink", async (req, res) => {
     await transporter.sendMail({
       to: email,
       subject: "Password Reset",
-      text: `You requested a password reset. Click the link to reset your password: ${resetLink}`,
+      html: `
+        <html>
+          <head>
+            <style>
+              body {
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                color: #333;
+              }
+              .container {
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+              }
+              h1 {
+                color: #4a4a4a;
+              }
+              .btn {
+                display: inline-block;
+                padding: 10px 20px;
+                background-color: #007bff;
+                color: #ffffff;
+                text-decoration: none;
+                border-radius: 5px;
+              }
+              .footer {
+                margin-top: 20px;
+                font-size: 0.8em;
+                color: #888;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>Password Reset Request</h1>
+              <p>Hello,</p>
+              <p>We received a request to reset your password. If you didn't make this request, you can ignore this email.</p>
+              <p>To reset your password, please click the button below:</p>
+              <p>
+                <a href="${resetLink}" class="btn">Reset Password</a>
+              </p>
+              <p>If the button doesn't work, you can also copy and paste the following link into your browser:</p>
+              <p>${resetLink}</p>
+              <p>This link will expire in 1 hour for security reasons.</p>
+              <p>If you have any questions, please don't hesitate to contact our support team.</p>
+              <div class="footer">
+                <p>Best regards,<br>Auction Team</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
     });
 
     res.status(200).json({ message: "Reset link sent" });
@@ -451,10 +504,47 @@ app.post("/sendResetLink", async (req, res) => {
 //   }
 // });
 
-app.post("/resetPassword", async (req, res) => {
-  const { password, token } = req.body;
+// app.post("/resetPassword/:token", async (req, res) => {
+//   const { token } = req.params;
+//   const { password } = req.body;
 
-  console.log("I reach here.....trying to reset password", token, password);
+//   console.log("I reach here.....trying to reset password", token, password);
+
+//   try {
+//     // Validate token
+//     const result = await pool.query(
+//       "SELECT user_id FROM password_resets WHERE token = $1 AND expires_at > NOW()",
+//       [token]
+//     );
+
+//     if (result.rows.length === 0) {
+//       return res.status(400).json({ error: "Invalid or expired token" });
+//     }
+
+//     const userId = result.rows[0].user_id;
+
+//     // Hash the new password
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // Update user's password
+//     await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+//       hashedPassword,
+//       userId,
+//     ]);
+
+//     // Delete the token
+//     await pool.query("DELETE FROM password_resets WHERE token = $1", [token]);
+
+//     res.status(200).json({ message: "Password reset successfully" });
+//   } catch (error) {
+//     console.error("Error resetting password:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
+
+app.post("/resetPassword/:token", async (req, res) => {
+  const { token } = req.params;
+  const { password } = req.body;
 
   try {
     // Validate token
@@ -852,7 +942,7 @@ app.post(
       res.status(200).json({ message: "Banking details saved successfully" });
     } catch (err) {
       console.error("Error saving banking details:", err);
-      res.status(500).json({ message: "Failed to save banking details" });
+      res.status(500).json({ error: "Failed to save banking details" });
     }
   }
 );
@@ -886,9 +976,11 @@ app.post("/savePaymentDetails", async (req, res) => {
 app.get("/getBankingDetails", async (req, res) => {
   const { email } = req.query;
 
+  console.log(`email ........pay.....:`, email);
+
   try {
     const result = await pool.query(
-      "SELECT account_number, bank_name, account_holder FROM banking_details WHERE email = $1",
+      "SELECT erc20_address, verification_layer FROM payment_verification WHERE email = $1",
       [email]
     );
 
@@ -998,45 +1090,124 @@ app.get("/auction-slots", async (req, res) => {
 //     }
 // });
 
+// app.put("/updateUserEmail", async (req, res) => {
+//   const { email } = req.body; // Extract email from request body
+//   const token = crypto.randomBytes(20).toString("hex"); // Generate random token
+
+//   try {
+//     // Update user email_code in the database
+//     const result = await pool.query(
+//       "UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *",
+//       [token, email]
+//     );
+
+//     if (result.rowCount === 0) {
+//       return res.status(404).json({ error: "User not found" });
+//     }
+
+//     // Setup email transporter
+//     const transporter = nodemailer.createTransport({
+//       service: "Gmail",
+//       auth: {
+//         user: "tzitondza@gmail.com", // Your email
+//         pass: "betv haka nufm ugbn", // Your app-specific password
+//       },
+//     });
+
+//     // Generate a link with the token
+//     const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
+
+//     // Send email with the verification link
+//     await transporter.sendMail({
+//       to: email,
+//       subject: "Email Verification: Auctions",
+//       text: `Click the link to verify your email on Acution: ${verificationLink}`,
+//     });
+
+//     // Respond with a success message
+//     res.json({ message: "Verification email sent!" });
+//   } catch (error) {
+//     console.error("Error updating user:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
+
 app.put("/updateUserEmail", async (req, res) => {
-  const { email } = req.body; // Extract email from request body
-  const token = crypto.randomBytes(20).toString("hex"); // Generate random token
+  const { email } = req.body;
+  const token = crypto.randomBytes(20).toString("hex");
 
   try {
-    // Update user email_code in the database
+    console.log("Updating email code for:", email);
     const result = await pool.query(
       "UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *",
       [token, email]
     );
 
     if (result.rowCount === 0) {
+      console.log("User not found for email:", email);
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Setup email transporter
+    console.log("Email code updated successfully");
+
     const transporter = nodemailer.createTransport({
       service: "Gmail",
       auth: {
-        user: "tzitondza@gmail.com", // Your email
-        pass: "betv haka nufm ugbn", // Your app-specific password
+        user: "tzitondza@gmail.com",
+        pass: "betv haka nufm ugbn",
       },
     });
 
-    // Generate a link with the token
-    const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
+    const verificationLink = `https://biding-7201c.web.app/verify-email?token=${token}`;
 
-    // Send email with the verification link
+    console.log("Sending verification email to:", email);
     await transporter.sendMail({
       to: email,
-      subject: "Email Verification: Auctions",
-      text: `Click the link to verify your email on Acution: ${verificationLink}`,
+      subject: "Verify Your Email for Auction",
+      html: `
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #4CAF50; color: white; padding: 10px; text-align: center; }
+              .content { padding: 20px; background-color: #f9f9f9; }
+              .button { display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px; }
+              .footer { margin-top: 20px; font-size: 12px; color: #888; text-align: center; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>Email Verification</h1>
+              </div>
+              <div class="content">
+                <h2>Welcome to Auction!</h2>
+                <p>Thank you for signing up. To complete your registration and start auctioning, please verify your email address.</p>
+                <p style="text-align: center;">
+                  <a href="${verificationLink}" class="button">Verify Your Email</a>
+                </p>
+                <p>If the button above doesn't work, you can also copy and paste the following link into your browser:</p>
+                <p>${verificationLink}</p>
+                <p>This link will expire in 24 hours for security reasons.</p>
+              </div>
+              <div class="footer">
+                <p>If you didn't create an account on Auction, please ignore this email.</p>
+                <p>&copy; 2024 Auction. All rights reserved.</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
     });
 
-    // Respond with a success message
+    console.log("Verification email sent successfully");
     res.json({ message: "Verification email sent!" });
   } catch (error) {
-    console.error("Error updating user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error("Error in updateUserEmail:", error);
+    res
+      .status(500)
+      .json({ error: "Internal server error", details: error.message });
   }
 });
 
@@ -1133,15 +1304,25 @@ app.post("/get-email-status", async (req, res) => {
 // });
 
 app.post("/api/join-auction", async (req, res) => {
-  const { email, amount, auctionSlot } = req.body;
+  const { email, amount } = req.body;
 
   const paymentReference = uuidv4();
+  const auctionCode = uuidv4().substring(0, 8).toUpperCase();
+  // const auctionSlot = Math.floor(Math.random() * 4) + 1;
+  const auctionSlot = 5;
 
   const query = `
-    INSERT INTO auction_table (user_email, auction_slot, joining_amount, amount_to_be_paid, payment_reference, timestamp)
-    VALUES ($1, $2, $3, $4, $5, NOW())
+    INSERT INTO auction_table (user_email, auction_slot, joining_amount, amount_to_be_paid, payment_reference,joining_reference, timestamp)
+    VALUES ($1, $2, $3, $4, $5,$6, NOW())
   `;
-  const values = [email, auctionSlot, amount, amount, paymentReference];
+  const values = [
+    email,
+    auctionSlot,
+    amount,
+    amount,
+    paymentReference,
+    auctionCode,
+  ];
 
   try {
     await pool.query(query, values);
@@ -1155,6 +1336,31 @@ app.post("/api/join-auction", async (req, res) => {
     res.status(500).json({ error: "Error joining auction" });
   }
 });
+
+// pp.post("/api/join-auction", async (req, res) => {
+//   const { email, amount } = req.body;
+
+//   const auctionCode = uuidv4().substring(0, 8).toUpperCase();
+//   const auctionSlot = Math.floor(Math.random() * 4) + 1;
+
+//   const query = `
+//     INSERT INTO users_auctions (user_id, auction_id, join_amount, auction_slot)
+//     VALUES ($1, $2, $3, $4)
+//   `;
+//   const values = [email, auctionCode, amount, auctionSlot];
+
+//   try {
+//     await pool.query(query, values);
+
+//     res.status(200).json({
+//       message: "Successfully joined the auction",
+//       paymentReference: auction_id,
+//     });
+//   } catch (error) {
+//     console.error("Error inserting into users_auctions:", error);
+//     res.status(500).json({ error: "Error joining auction" });
+//   }
+// });
 
 // app.get("/api/people-to-pay", async (req, res) => {
 //   const { amount } = req.query;
@@ -1170,28 +1376,112 @@ app.post("/api/join-auction", async (req, res) => {
 //   }
 // });
 
+// app.get("/api/people-to-pay", async (req, res) => {
+//   const { amount, email } = req.query;
+//   const targetAmount = parseInt(amount);
+
+//   console.log(`email:`, email);
+//   console.log(`amount:`, amount);
+
+//   // Define a percentage range for the total (e.g., ±5%)
+//   const rangePercentage = 0.05; // 5% range
+//   const minAmount = targetAmount * (1 - rangePercentage);
+//   const maxAmount = targetAmount * (1 + rangePercentage);
+
+//   console.log(`Target amount: ${targetAmount}`);
+//   console.log(`Allowed range: Min = ${minAmount}, Max = ${maxAmount}`);
+//   console.log(`Excluding user with email: ${email}`);
+
+//   // Query to select people to pay, excluding the current user
+//   const query = `
+//     SELECT id, user_email, amount_to_be_paid
+//     FROM auction_table
+//     WHERE user_email != $1 -- Exclude the current user's email
+//     ORDER BY amount_to_be_paid DESC;
+//   `;
+
+//   try {
+//     // Fetch all people from the auction_table excluding the current user
+//     const result = await pool.query(query, [email]);
+
+//     console.log(`Number of people found: ${result.rows.length}`);
+//     console.log(`People fetched from auction_table:`, result.rows);
+
+//     const people = result.rows;
+
+//     if (people.length < 3) {
+//       console.log("Not enough people available for payment.");
+//       return res
+//         .status(404)
+//         .json({ error: "Not enough people available for payment." });
+//     }
+
+//     // Function to find combinations of 3 people whose total is within the allowed range
+//     const findMatchingCombination = (people, minAmount, maxAmount) => {
+//       console.log("Searching for combinations...");
+//       for (let i = 0; i < people.length - 2; i++) {
+//         for (let j = i + 1; j < people.length - 1; j++) {
+//           for (let k = j + 1; k < people.length; k++) {
+//             // Convert `amount_to_be_paid` to numbers and sum them
+//             const sum =
+//               Number(people[i].amount_to_be_paid) +
+//               Number(people[j].amount_to_be_paid) +
+//               Number(people[k].amount_to_be_paid);
+
+//             // Log the details of the current combination and sum
+//             console.log(
+//               `Trying combination: [${people[i].id}, ${people[j].id}, ${people[k].id}] - Total: ${sum}`
+//             );
+
+//             // Check if the sum is within the allowed range
+//             if (sum >= minAmount && sum <= maxAmount) {
+//               console.log(
+//                 `Matching combination found: [${people[i].id}, ${people[j].id}, ${people[k].id}] with sum = ${sum}`
+//               );
+//               return [people[i], people[j], people[k]]; // Return the matching combination
+//             }
+//           }
+//         }
+//       }
+//       console.log("No matching combination found.");
+//       return null; // No combination found
+//     };
+
+//     // Try to find 3 people whose amounts sum up to within the allowed range
+//     const matchingPeople = findMatchingCombination(
+//       people,
+//       minAmount,
+//       maxAmount
+//     );
+
+//     if (!matchingPeople) {
+//       console.log("No matching people found within the range.");
+//       return res
+//         .status(404)
+//         .json({ error: "No matching people found within the given range." });
+//     }
+
+//     console.log("Selected people:", matchingPeople);
+//     res.status(200).json(matchingPeople); // Return the selected people
+//   } catch (error) {
+//     console.error("Error fetching people from auction_table:", error);
+//     res.status(500).json({ error: "Failed to fetch people" });
+//   }
+// });
+
 app.get("/api/people-to-pay", async (req, res) => {
-  const { amount, email } = req.query;
-  const targetAmount = parseInt(amount);
+  const { email } = req.query;
 
-  console.log(`email:`, email);
-  console.log(`amount:`, amount);
-
-  // Define a percentage range for the total (e.g., ±5%)
-  const rangePercentage = 0.05; // 5% range
-  const minAmount = targetAmount * (1 - rangePercentage);
-  const maxAmount = targetAmount * (1 + rangePercentage);
-
-  console.log(`Target amount: ${targetAmount}`);
-  console.log(`Allowed range: Min = ${minAmount}, Max = ${maxAmount}`);
   console.log(`Excluding user with email: ${email}`);
 
-  // Query to select people to pay, excluding the current user
+  // Query to select all people, excluding the current user, and including their ERC20 address if available
   const query = `
-    SELECT id, user_email, amount_to_be_paid 
-    FROM auction_table
-    WHERE user_email != $1 -- Exclude the current user's email
-    ORDER BY amount_to_be_paid DESC;
+    SELECT at.id, at.user_email, at.amount_to_be_paid, at.auction_slot, at.joining_amount, 
+           at.payment_reference, at.joining_reference, at.timestamp, pv.erc20_address
+    FROM auction_table at
+    LEFT JOIN payment_verification pv ON at.user_email = pv.email
+    WHERE at.user_email != $1
+    ORDER BY at.amount_to_be_paid DESC;
   `;
 
   try {
@@ -1199,67 +1489,147 @@ app.get("/api/people-to-pay", async (req, res) => {
     const result = await pool.query(query, [email]);
 
     console.log(`Number of people found: ${result.rows.length}`);
-    console.log(`People fetched from auction_table:`, result.rows);
 
-    const people = result.rows;
-
-    if (people.length < 3) {
-      console.log("Not enough people available for payment.");
+    if (result.rows.length === 0) {
+      console.log("No other users found in the auction table.");
       return res
         .status(404)
-        .json({ error: "Not enough people available for payment." });
+        .json({ error: "No other users found in the auction." });
     }
 
-    // Function to find combinations of 3 people whose total is within the allowed range
-    const findMatchingCombination = (people, minAmount, maxAmount) => {
-      console.log("Searching for combinations...");
-      for (let i = 0; i < people.length - 2; i++) {
-        for (let j = i + 1; j < people.length - 1; j++) {
-          for (let k = j + 1; k < people.length; k++) {
-            // Convert `amount_to_be_paid` to numbers and sum them
-            const sum =
-              Number(people[i].amount_to_be_paid) +
-              Number(people[j].amount_to_be_paid) +
-              Number(people[k].amount_to_be_paid);
+    // Filter out users without an ERC20 address
+    const filteredUsers = result.rows.filter((user) => user.erc20_address);
 
-            // Log the details of the current combination and sum
-            console.log(
-              `Trying combination: [${people[i].id}, ${people[j].id}, ${people[k].id}] - Total: ${sum}`
-            );
-
-            // Check if the sum is within the allowed range
-            if (sum >= minAmount && sum <= maxAmount) {
-              console.log(
-                `Matching combination found: [${people[i].id}, ${people[j].id}, ${people[k].id}] with sum = ${sum}`
-              );
-              return [people[i], people[j], people[k]]; // Return the matching combination
-            }
-          }
-        }
-      }
-      console.log("No matching combination found.");
-      return null; // No combination found
-    };
-
-    // Try to find 3 people whose amounts sum up to within the allowed range
-    const matchingPeople = findMatchingCombination(
-      people,
-      minAmount,
-      maxAmount
+    console.log(
+      `Number of users with ERC20 addresses: ${filteredUsers.length}`
     );
 
-    if (!matchingPeople) {
-      console.log("No matching people found within the range.");
+    if (filteredUsers.length === 0) {
       return res
         .status(404)
-        .json({ error: "No matching people found within the given range." });
+        .json({ error: "No users found with verified payment details." });
     }
 
-    console.log("Selected people:", matchingPeople);
-    res.status(200).json(matchingPeople); // Return the selected people
+    console.log("Returning users from auction_table with ERC20 addresses");
+    res.status(200).json(filteredUsers);
   } catch (error) {
     console.error("Error fetching people from auction_table:", error);
     res.status(500).json({ error: "Failed to fetch people" });
+  }
+});
+
+app.get("/api/joining-fee", async (req, res) => {
+  const { email, auctionId } = req.query;
+
+  console.log(
+    `Fetching joining fee for email: ${email}, auctionId: ${auctionId}`
+  );
+
+  try {
+    // Fetch the joining fee from the database
+    const result = await pool.query(
+      "SELECT joining_amount FROM auction_table WHERE auction_slot = $1 AND user_email = $2 ORDER BY timestamp DESC LIMIT 1",
+      [auctionId, email]
+    );
+
+    console.log(`Query result:`, result.rows);
+
+    if (result.rows.length > 0) {
+      const fee = result.rows[0].joining_amount;
+      console.log(`Joining fee found: ${fee}`);
+      res.json({ fee: fee });
+    } else {
+      console.log(
+        `No joining fee found for email: ${email}, auctionId: ${auctionId}`
+      );
+      res.status(404).json({ error: "Joining fee not found for this auction" });
+    }
+  } catch (error) {
+    console.error("Error fetching joining fee:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/user-address", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const result = await pool.query(
+      "SELECT erc20_address FROM payment_verification WHERE email = $1",
+      [email]
+    );
+
+    if (result.rows.length > 0) {
+      res.json({ address: result.rows[0].erc20_address });
+    } else {
+      res.status(404).json({ error: "Address not found for this user" });
+    }
+  } catch (error) {
+    console.error("Error fetching user address:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/submitCrypto", async (req, res) => {
+  console.log("Received submitCrypto request:", req.body);
+
+  const { username, cryptoAddress, amount, usdtAddress } = req.body;
+
+  if (!username || !cryptoAddress || !amount || !usdtAddress) {
+    console.log("Missing required fields:", {
+      username,
+      cryptoAddress,
+      amount,
+      usdtAddress,
+    });
+    return res.status(400).json({ message: "All fields are required." });
+  }
+
+  try {
+    // Insert into Postgres database
+    const query = `INSERT INTO Transactionss (username, cryptoAddress, amount, usdtAddress) 
+                   VALUES ($1, $2, $3, $4) RETURNING *`;
+    const values = [username, cryptoAddress, amount, usdtAddress];
+
+    console.log("Executing query:", query);
+    console.log("Query values:", values);
+
+    const result = await pool.query(query, values);
+
+    console.log("Transaction recorded successfully:", result.rows[0]);
+
+    res.status(200).json({
+      message: "Transaction recorded successfully",
+      transaction: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error inserting transaction:", error);
+
+    // More detailed error handling
+    if (error.code === "23505") {
+      // Unique constraint violation
+      return res
+        .status(409)
+        .json({ message: "Duplicate transaction detected." });
+    } else if (error.code === "23503") {
+      // Foreign key constraint violation
+      return res
+        .status(400)
+        .json({ message: "Invalid reference in transaction." });
+    } else if (error.code === "22P02") {
+      // Invalid text representation
+      return res
+        .status(400)
+        .json({ message: "Invalid data format in transaction." });
+    }
+
+    res
+      .status(500)
+      .json({ message: "Internal server error", error: error.message });
   }
 });
 
