@@ -32,14 +32,6 @@ app.use(bodyParser.json());
 //   port: 5432,
 // });
 
-// const pool = new Pool({
-//   host: "pg-2c334ff-hkwezwe-854b.h.aivencloud.com",
-//   user: "avnadmin",
-//   password: "AVNS_X91lzsB2QtUsyCavEpb",
-//   database: "defaultdb",
-//   port: 15473,
-// });
-
 const pool = new Pool({
   host: "freedb-tzitondza-36bb.h.aivencloud.com", // Aiven hostname
   user: "avnadmin", // Aiven username
@@ -65,6 +57,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const generateReferralCode = () => {
   return Math.random().toString(36).substr(2, 10); // Simple random code generation
+};
+
+const generateIDCode = () => {
+  // Generate a random number between 1000000000 and 2147483647
+  return Math.floor(1000000000 + Math.random() * 1147483647);
+};
+
+const generateRefRefCode = () => {
+  return Math.random().toString(36).substr(2, 10).toUpperCase(); // Simple random code generation with uppercase letters
 };
 
 const token = crypto.randomBytes(20).toString("hex");
@@ -160,6 +161,51 @@ app.post("/userRegistration", async (req, res) => {
   }
 });
 
+// New table user registration endpoint
+app.post("/userRegistrationNew", async (req, res) => {
+  const { username, email, password, phone, referal_email } = req.body;
+
+  const user_id = generateIDCode();
+  const referral_reference = generateRefRefCode();
+
+  try {
+    // Check if the email or username already exists
+    const checkUserQuery =
+      "SELECT * FROM userss WHERE user_id = $1 OR email = $2";
+    const checkUserResult = await pool.query(checkUserQuery, [user_id, email]);
+
+    if (checkUserResult.rows.length > 0) {
+      // If a user with the same email or username is found, return an error
+      return res.status(400).json({ error: "Email or user id already exists" });
+    }
+
+    // Hash the password before storing it
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert the new user into the database with the hashed password and referral email
+    const insertUserQuery =
+      "INSERT INTO userss (user_id, name, email, phone, password, referred_by, referral_reference, crypto_address, balance) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *";
+    const result = await pool.query(insertUserQuery, [
+      user_id,
+      username,
+      email,
+      phone,
+      hashedPassword,
+      referal_email,
+      referral_reference,
+      "NULL",
+      0,
+    ]);
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error inserting data:", error);
+    res.status(500).json({ error: "Database insertion error" });
+  }
+});
+
+// End of new table user registration endpoint
+
 app.post("/userRegistrationRef", async (req, res) => {
   const { username, email, password, phone, referralCode } = req.body;
 
@@ -235,6 +281,47 @@ app.post("/userLogin", async (req, res) => {
   }
 });
 
+app.post("/userLoginNew", async (req, res) => {
+  const { email, password } = req.body;
+  console.log("FROM SERVER.....", email, password);
+
+  try {
+    // Query the user by username
+    const result = await pool.query("SELECT * FROM userss WHERE email = $1", [
+      email,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    const user = result.rows[0];
+    console.log("Stored hashed password:", user.password);
+
+    // Compare the provided password with the stored hashed password
+    const isMatch = await bcrypt.compare(password, user.password);
+    console.log("Password match result:", isMatch);
+
+    if (!isMatch) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+
+    // If credentials are valid
+    res.json({
+      message: "Login successful",
+      user: {
+        id: user.user_id,
+        username: user.name,
+        email: user.email,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error("Error during login:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Get all users endpoint
 app.get("/getUsers", async (req, res) => {
   try {
@@ -288,48 +375,6 @@ app.put("/updateUser/:id", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-// app.put("/updatePassword/:id", async (req, res) => {
-//   const { id } = req.params;
-//   const { current, newPassword } = req.body;
-
-//   console.log("Data receval", current, newPassword);
-
-//   try {
-//     // Fetch the user from the database by ID
-//     const userResult = await pool.query(
-//       "SELECT password FROM users WHERE email = $1",
-//       [id]
-//     );
-
-//     if (userResult.rowCount === 0) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     const user = userResult.rows[0];
-
-//     // Compare the provided current password with the stored hashed password
-//     const isMatch = await bcrypt.compare(current, user.password);
-
-//     if (!isMatch) {
-//       return res.status(400).json({ error: "Current password is incorrect" });
-//     }
-
-//     // Hash the new password
-//     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-
-//     // Update the password in the database
-//     const updateResult = await pool.query(
-//       "UPDATE users SET password = $1 WHERE email = $2 RETURNING *",
-//       [hashedNewPassword, id]
-//     );
-
-//     res.json({ message: "Password updated successfully" });
-//   } catch (error) {
-//     console.error("Error updating password:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// });
 
 app.put("/updatePassword/:id", async (req, res) => {
   const { id } = req.params;
@@ -467,80 +512,6 @@ app.post("/sendResetLink", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-// app.post("/resetPassword", async (req, res) => {
-//   const { token, password } = req.body;
-//   console.log("I reach here.....", token, password);
-
-//   try {
-//     // Validate token
-//     const result = await pool.query(
-//       "SELECT user_id FROM password_resets WHERE token = $1 AND expires_at > NOW()",
-//       [token]
-//     );
-
-//     if (result.rows.length === 0) {
-//       return res.status(400).json({ error: "Invalid or expired token" });
-//     }
-
-//     const userId = result.rows[0].user_id;
-
-//     // Hash the new password
-//     const hashedPassword = await bcrypt.hash(password, 10);
-
-//     // Update user's password
-//     await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
-//       hashedPassword,
-//       userId,
-//     ]);
-
-//     // Delete the token
-//     await pool.query("DELETE FROM password_resets WHERE token = $1", [token]);
-
-//     res.status(200).json({ message: "Password reset successfully" });
-//   } catch (error) {
-//     console.error("Error resetting password:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// });
-
-// app.post("/resetPassword/:token", async (req, res) => {
-//   const { token } = req.params;
-//   const { password } = req.body;
-
-//   console.log("I reach here.....trying to reset password", token, password);
-
-//   try {
-//     // Validate token
-//     const result = await pool.query(
-//       "SELECT user_id FROM password_resets WHERE token = $1 AND expires_at > NOW()",
-//       [token]
-//     );
-
-//     if (result.rows.length === 0) {
-//       return res.status(400).json({ error: "Invalid or expired token" });
-//     }
-
-//     const userId = result.rows[0].user_id;
-
-//     // Hash the new password
-//     const hashedPassword = await bcrypt.hash(password, 10);
-
-//     // Update user's password
-//     await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
-//       hashedPassword,
-//       userId,
-//     ]);
-
-//     // Delete the token
-//     await pool.query("DELETE FROM password_resets WHERE token = $1", [token]);
-
-//     res.status(200).json({ message: "Password reset successfully" });
-//   } catch (error) {
-//     console.error("Error resetting password:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// });
 
 app.post("/resetPassword/:token", async (req, res) => {
   const { token } = req.params;
@@ -828,46 +799,6 @@ app.post("/uploadDocument", upload.single("document"), async (req, res) => {
   }
 });
 
-// app.post("/getDocuments", async (req, res) => {
-//   const { userId } = req.body;
-
-//   if (!userId) {
-//     return res.status(400).json({ message: "User ID is required" });
-//   }
-
-//   try {
-//     // Query to fetch document statuses
-//     const result = await pool.query(
-//       `SELECT
-//          document_type AS "documentType",
-//          status AS "status"
-//        FROM documents
-//        WHERE user_id = $1`,
-//       [userId]
-//     );
-
-//     // Transform the result into a structure similar to your client code
-//     const documents = result.rows.reduce((acc, row) => {
-//       acc[row.documentType] = row.status;
-//       return acc;
-//     }, {});
-
-//     // Default statuses to 'missing' if not present
-//     const allDocTypes = ["idDocument", "cardDocument", "photoVerification"];
-//     allDocTypes.forEach((docType) => {
-//       if (!documents[docType]) {
-//         documents[docType] = "missing";
-//       }
-//     });
-
-//     // Respond with document statuses
-//     res.json(documents);
-//   } catch (error) {
-//     console.error("Error fetching document statuses:", error);
-//     res.status(500).json({ message: "Error fetching document statuses" });
-//   }
-// });
-
 app.post("/getDocuments", async (req, res) => {
   const { userId } = req.body;
 
@@ -1047,91 +978,6 @@ app.get("/auction-slots", async (req, res) => {
   }
 });
 
-// Update user endpoint
-// app.put('/updateUserEmail', async (req, res) => {
-//     const { email } = req.body; // Extract email from request body
-//     const token = crypto.randomBytes(20).toString('hex'); // Generate random token
-
-//     try {
-//         // Update user status and token in the database
-//         const result = await pool.query(
-//             'UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *',
-//             [token, email]
-//         );
-
-//         if (result.rowCount === 0) {
-//             return res.status(404).json({ error: 'User not found' });
-//         }
-
-//         // Setup email transporter
-//         const transporter = nodemailer.createTransport({
-//             service: "Gmail",
-//             auth: {
-//                 user: "khanyadlamini22@gmail.com",  // Your email
-//                 pass: "giak jrxb qlnl kyhy",        // Your app-specific password
-//             },
-//         });
-
-//         // Generate a link with the token
-//         const getLink = `http://${token}`;  // Replace with actual link in production
-
-//         // Send email with the verification link
-//         await transporter.sendMail({
-//             to: email,
-//             subject: 'Email Verification: Auctions',
-//             text: `Click the link to verify your email at Auctions: ${getLink}`,
-//         });
-
-//         // Respond with a success message
-//         res.json({ message: 'Verification email sent!' });
-//     } catch (error) {
-//         console.error('Error updating user:', error);
-//         res.status(500).json({ error: 'Internal server error' });
-//     }
-// });
-
-// app.put("/updateUserEmail", async (req, res) => {
-//   const { email } = req.body; // Extract email from request body
-//   const token = crypto.randomBytes(20).toString("hex"); // Generate random token
-
-//   try {
-//     // Update user email_code in the database
-//     const result = await pool.query(
-//       "UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *",
-//       [token, email]
-//     );
-
-//     if (result.rowCount === 0) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     // Setup email transporter
-//     const transporter = nodemailer.createTransport({
-//       service: "Gmail",
-//       auth: {
-//         user: "tzitondza@gmail.com", // Your email
-//         pass: "betv haka nufm ugbn", // Your app-specific password
-//       },
-//     });
-
-//     // Generate a link with the token
-//     const verificationLink = `http://localhost:5173/verify-email?token=${token}`; // Replace with your actual domain
-
-//     // Send email with the verification link
-//     await transporter.sendMail({
-//       to: email,
-//       subject: "Email Verification: Auctions",
-//       text: `Click the link to verify your email on Acution: ${verificationLink}`,
-//     });
-
-//     // Respond with a success message
-//     res.json({ message: "Verification email sent!" });
-//   } catch (error) {
-//     console.error("Error updating user:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// });
-
 app.put("/updateUserEmail", async (req, res) => {
   const { email } = req.body;
   const token = crypto.randomBytes(20).toString("hex");
@@ -1282,7 +1128,7 @@ app.post("/get-email-status", async (req, res) => {
 
 //   if (paymentStatus === 'success') {
 
-//     const email = "user@example.com";
+//     const email = "tzitondza.com";
 //     const auctionSlot = "auction-id";
 
 //     const query = `
@@ -1309,7 +1155,7 @@ app.post("/api/join-auction", async (req, res) => {
   const paymentReference = uuidv4();
   const auctionCode = uuidv4().substring(0, 8).toUpperCase();
   // const auctionSlot = Math.floor(Math.random() * 4) + 1;
-  const auctionSlot = 5;
+  const auctionSlot = 2;
 
   const query = `
     INSERT INTO auction_table (user_email, auction_slot, joining_amount, amount_to_be_paid, payment_reference,joining_reference, timestamp)
@@ -1574,26 +1420,99 @@ app.get("/api/user-address", async (req, res) => {
   }
 });
 
+// app.post("/submitCrypto", async (req, res) => {
+//   console.log("Received submitCrypto request:", req.body);
+
+//   const { username, cryptoAddress, amount, usdtAddress } = req.body;
+
+//   if (!username || !cryptoAddress || !amount || !usdtAddress) {
+//     console.log("Missing required fields:", {
+//       username,
+//       cryptoAddress,
+//       amount,
+//       usdtAddress,
+//     });
+//     return res.status(400).json({ message: "All fields are required." });
+//   }
+
+//   try {
+//     // Insert into Postgres database
+//     const query = `INSERT INTO Transactionss (username, cryptoAddress, amount, usdtAddress)
+//                    VALUES ($1, $2, $3, $4) RETURNING *`;
+//     const values = [username, cryptoAddress, amount, usdtAddress];
+
+//     console.log("Executing query:", query);
+//     console.log("Query values:", values);
+
+//     const result = await pool.query(query, values);
+
+//     console.log("Transaction recorded successfully:", result.rows[0]);
+
+//     res.status(200).json({
+//       message: "Transaction recorded successfully",
+//       transaction: result.rows[0],
+//     });
+//   } catch (error) {
+//     console.error("Error inserting transaction:", error);
+
+//     // More detailed error handling
+//     if (error.code === "23505") {
+//       // Unique constraint violation
+//       return res
+//         .status(409)
+//         .json({ message: "Duplicate transaction detected." });
+//     } else if (error.code === "23503") {
+//       // Foreign key constraint violation
+//       return res
+//         .status(400)
+//         .json({ message: "Invalid reference in transaction." });
+//     } else if (error.code === "22P02") {
+//       // Invalid text representation
+//       return res
+//         .status(400)
+//         .json({ message: "Invalid data format in transaction." });
+//     }
+
+//     res
+//       .status(500)
+//       .json({ message: "Internal server error", error: error.message });
+//   }
+// });
+
 app.post("/submitCrypto", async (req, res) => {
   console.log("Received submitCrypto request:", req.body);
 
-  const { username, cryptoAddress, amount, usdtAddress } = req.body;
+  const { username, cryptoAddress, amount, usdtAddress, transactionHash } =
+    req.body;
 
-  if (!username || !cryptoAddress || !amount || !usdtAddress) {
+  if (
+    !username ||
+    !cryptoAddress ||
+    !amount ||
+    !usdtAddress ||
+    !transactionHash
+  ) {
     console.log("Missing required fields:", {
       username,
       cryptoAddress,
       amount,
       usdtAddress,
+      transactionHash,
     });
     return res.status(400).json({ message: "All fields are required." });
   }
 
   try {
-    // Insert into Postgres database
-    const query = `INSERT INTO Transactionss (username, cryptoAddress, amount, usdtAddress) 
-                   VALUES ($1, $2, $3, $4) RETURNING *`;
-    const values = [username, cryptoAddress, amount, usdtAddress];
+    // Insert into Postgres database, including transactionHash
+    const query = `INSERT INTO Transactionss (username, cryptoAddress, amount, usdtAddress, transactionHash) 
+                   VALUES ($1, $2, $3, $4, $5) RETURNING *`;
+    const values = [
+      username,
+      cryptoAddress,
+      amount,
+      usdtAddress,
+      transactionHash,
+    ];
 
     console.log("Executing query:", query);
     console.log("Query values:", values);
@@ -1611,17 +1530,14 @@ app.post("/submitCrypto", async (req, res) => {
 
     // More detailed error handling
     if (error.code === "23505") {
-      // Unique constraint violation
       return res
         .status(409)
         .json({ message: "Duplicate transaction detected." });
     } else if (error.code === "23503") {
-      // Foreign key constraint violation
       return res
         .status(400)
         .json({ message: "Invalid reference in transaction." });
     } else if (error.code === "22P02") {
-      // Invalid text representation
       return res
         .status(400)
         .json({ message: "Invalid data format in transaction." });
@@ -1630,6 +1546,143 @@ app.post("/submitCrypto", async (req, res) => {
     res
       .status(500)
       .json({ message: "Internal server error", error: error.message });
+  }
+});
+
+// Get user joined data
+app.get("/api/check-user-joined", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    // Query to get all relevant data for the user from the auction_table
+    const result = await pool.query(
+      "SELECT user_email, joining_amount, auction_slot, amount_to_be_paid FROM auction_table WHERE user_email = $1",
+      [email]
+    );
+
+    if (result.rows.length > 0) {
+      // User has joined the auction, return all relevant data
+      res.json({ hasJoined: true, data: result.rows[0] }); // Return the first row of data
+    } else {
+      // User has not joined the auction
+      res.json({ hasJoined: false });
+    }
+  } catch (error) {
+    console.error("Error checking if user has joined:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// app.post("/api/insert-transaction", async (req, res) => {
+//   const { email, address, amount, transaction_hash, crptoaddress } = req.body;
+
+//   // Validate input
+//   if (!email || !address || !transaction_hash) {
+//     return res.status(400).json({ error: "Missing required fields" });
+//   }
+
+//   try {
+//     // Insert the transaction into the database
+//     const query = `
+//             INSERT INTO transactionss (username, usdtaddress, amount, transactionhash, cryptoaddress, createdat, updatedat)
+//             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+//             RETURNING *;
+//         `;
+//     const values = [email, address, amount, transaction_hash, crptoaddress];
+
+//     const result = await pool.query(query, values);
+//     const insertedTransaction = result.rows[0];
+
+//     // Update the auction_table to subtract the amount paid
+//     const updateQuery = `
+//             UPDATE auction_table
+//             SET amount_to_be_paid = amount_to_be_paid - $1
+//             WHERE user_email = $2
+//             RETURNING *;
+//         `;
+//     const updateValues = [amount, email];
+
+//     await pool.query(updateQuery, updateValues);
+
+//     // Respond with the inserted transaction
+//     res.status(201).json(insertedTransaction);
+//   } catch (error) {
+//     console.error("Error inserting transaction:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
+
+app.post("/api/insert-transaction", async (req, res) => {
+  const { email, address, amount, transaction_hash, crptoaddress } = req.body;
+
+  // Validate input
+  if (!email || !address || !transaction_hash) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    // Insert the transaction into the database
+    const query = `
+            INSERT INTO transactionss (username, usdtaddress, amount, transactionhash, cryptoaddress, createdat, updatedat)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+            RETURNING *;
+        `;
+    const values = [email, address, amount, transaction_hash, crptoaddress];
+
+    const result = await pool.query(query, values);
+    const insertedTransaction = result.rows[0];
+
+    // Update the auction_table to subtract the amount paid
+    const updateQuery = `
+            UPDATE auction_table
+            SET amount_to_be_paid = amount_to_be_paid - $1
+            WHERE user_email = $2
+            RETURNING amount_to_be_paid; 
+        `;
+    const updateValues = [amount, email];
+
+    const updateResult = await pool.query(updateQuery, updateValues);
+    const updatedAmountToBePaid = updateResult.rows[0].amount_to_be_paid;
+
+    // Respond with the inserted transaction and updated amount
+    res.status(201).json({
+      transaction: insertedTransaction,
+      updatedAmountToBePaid: updatedAmountToBePaid,
+    });
+  } catch (error) {
+    console.error("Error inserting transaction:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/total-paid", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const query = `
+            SELECT SUM(amount) AS total_paid, 
+                   MAX(usdtaddress) AS usdtaddress  -- Get the first usdtaddress (or use another aggregation method)
+            FROM transactionss
+            WHERE username = $1;
+        `;
+    const values = [email];
+
+    const result = await pool.query(query, values);
+    const totalPaid = result.rows[0]?.total_paid || 0; // Default to 0 if no records found
+    const usdtaddress = result.rows[0]?.usdtaddress || null; // Default to null if no address found
+
+    res.status(200).json({ totalPaid, usdtaddress });
+  } catch (error) {
+    console.error("Error fetching total paid:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
