@@ -42,7 +42,7 @@ const pool = new Pool({
     rejectUnauthorized: true,
     ca: fs.readFileSync("./ca.pem").toString(), // Path to Aiven CA certificate
   },
-});
+}); 
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
