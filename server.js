@@ -42,7 +42,7 @@ const pool = new Pool({
     rejectUnauthorized: true,
     ca: fs.readFileSync("./ca.pem").toString(), // Path to Aiven CA certificate
   },
-}); 
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -167,6 +167,7 @@ app.post("/userRegistrationNew", async (req, res) => {
 
   const user_id = generateIDCode();
   const referral_reference = generateRefRefCode();
+  let reference_code = "";
 
   try {
     // Check if the email or username already exists
@@ -177,6 +178,19 @@ app.post("/userRegistrationNew", async (req, res) => {
     if (checkUserResult.rows.length > 0) {
       // If a user with the same email or username is found, return an error
       return res.status(400).json({ error: "Email or user id already exists" });
+    }
+
+    // Check if the referral email exists and get the referral_reference
+    const referralQuery =
+      "SELECT referral_reference FROM userss WHERE email = $1";
+    const referralResult = await pool.query(referralQuery, [referal_email]);
+
+    if (referralResult.rows.length === 0) {
+      // If the referral email does not exist, return an error
+      return res.status(400).json({ error: "Referral email does not exist" });
+    } else {
+      // Get the referral_reference from the result
+      reference_code = referralResult.rows[0].referral_reference;
     }
 
     // Hash the password before storing it
@@ -191,7 +205,7 @@ app.post("/userRegistrationNew", async (req, res) => {
       email,
       phone,
       hashedPassword,
-      referal_email,
+      reference_code,
       referral_reference,
       "NULL",
       0,
@@ -229,6 +243,78 @@ app.post("/userRegistrationRef", async (req, res) => {
     const result = await pool.query(
       "INSERT INTO users (username, email, password, phone, referral_code) VALUES ($1, $2, $3, $4, $5) RETURNING *",
       [username, email, hashedPassword, phone, referralCode]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error inserting data:", error);
+    res.status(500).json({ error: "Database insertion error" });
+  }
+});
+
+app.post("/userRegistrationRefNew", async (req, res) => {
+  const { username, email, password, phone, referralCode } = req.body;
+  const user_id = generateIDCode();
+  const referral_reference = generateRefRefCode();
+  let reference_code = "";
+
+  try {
+    // Check if the email or username already exists
+    const checkUserQuery =
+      "SELECT * FROM userss WHERE user_id = $1 OR email = $2";
+    const checkUserResult = await pool.query(checkUserQuery, [user_id, email]);
+
+    if (checkUserResult.rows.length > 0) {
+      // If a user with the same email or username is found, return an error
+      return res
+        .status(400)
+        .json({ error: "Email or username already exists" });
+    }
+
+    // Check if the referral code exists and get the associated email
+    const referralQuery =
+      "SELECT email FROM referrals WHERE referral_code = $1";
+    const referralResult = await pool.query(referralQuery, [referralCode]);
+
+    if (referralResult.rows.length === 0) {
+      // If the referral code does not exist, return an error
+      return res.status(400).json({ error: "Referral code does not exist" });
+    }
+
+    const referralEmail = referralResult.rows[0].email;
+
+    // Now check the referral_reference using the referralEmail
+    const userReferralQuery =
+      "SELECT referral_reference FROM userss WHERE email = $1";
+    const userReferralResult = await pool.query(userReferralQuery, [
+      referralEmail,
+    ]);
+
+    if (userReferralResult.rows.length === 0) {
+      // If the referral email does not exist in userss, return an error
+      return res.status(400).json({ error: "Referral does not exist" });
+    } else {
+      // Get the referral_reference from the result
+      reference_code = userReferralResult.rows[0].referral_reference;
+    }
+
+    // Hash the password before storing it
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert the new user into the database with the hashed password and referralCode
+    const result = await pool.query(
+      "INSERT INTO userss (user_id, name, email, phone, password, referred_by, referral_reference, crypto_address, balance) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+      [
+        user_id,
+        username,
+        email,
+        phone,
+        hashedPassword,
+        reference_code,
+        referral_reference,
+        "NULL",
+        0,
+      ]
     );
 
     res.status(201).json(result.rows[0]);
@@ -361,7 +447,7 @@ app.put("/updateUser/:id", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "UPDATE users SET username = $1, phone = $2 WHERE email = $3 RETURNING *",
+      "UPDATE userss SET name = $1, phone = $2 WHERE user_id = $3 RETURNING *",
       [username, phone, id]
     );
 
@@ -379,10 +465,11 @@ app.put("/updateUser/:id", async (req, res) => {
 app.put("/updatePassword/:id", async (req, res) => {
   const { id } = req.params;
   const { current, newPassword } = req.body;
+  console.log("Updating Paasword");
 
   try {
     const userResult = await pool.query(
-      "SELECT password FROM users WHERE email = $1",
+      "SELECT password FROM userss WHERE user_id = $1",
       [id]
     );
 
@@ -399,7 +486,7 @@ app.put("/updatePassword/:id", async (req, res) => {
     }
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
     const updateResult = await pool.query(
-      "UPDATE users SET password = $1 WHERE email = $2 RETURNING *",
+      "UPDATE userss SET password = $1 WHERE user_id = $2 RETURNING *",
       [hashedNewPassword, id]
     );
 
@@ -554,7 +641,7 @@ app.post("/userProfile", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT username, email, phone FROM users WHERE email = $1",
+      "SELECT name, email, phone, balance FROM userss WHERE user_id = $1",
       [userId]
     );
 
@@ -983,14 +1070,26 @@ app.put("/updateUserEmail", async (req, res) => {
   const token = crypto.randomBytes(20).toString("hex");
 
   try {
-    console.log("Updating email code for:", email);
+    const userResult = await pool.query(
+      "SELECT email FROM userss WHERE user_id = $1",
+      [email]
+    );
+
+    if (userResult.rowCount === 0) {
+      console.log("User not found for user_id:", email);
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userEmail = userResult.rows[0].email;
+
     const result = await pool.query(
-      "UPDATE users SET email_code = $1 WHERE email = $2 RETURNING *",
-      [token, email]
+      `INSERT INTO email_verifications (email, email_code, email_verification_status) 
+         VALUES ($1, $2, FALSE) RETURNING *`,
+      [userEmail, token]
     );
 
     if (result.rowCount === 0) {
-      console.log("User not found for email:", email);
+      console.log("User not found for email:", userEmail);
       return res.status(404).json({ error: "User not found" });
     }
 
@@ -1006,9 +1105,9 @@ app.put("/updateUserEmail", async (req, res) => {
 
     const verificationLink = `https://biding-7201c.web.app/verify-email?token=${token}`;
 
-    console.log("Sending verification email to:", email);
+    console.log("Sending verification email to:", userEmail);
     await transporter.sendMail({
-      to: email,
+      to: userEmail,
       subject: "Verify Your Email for Auction",
       html: `
         <html>
@@ -1063,7 +1162,7 @@ app.get("/verify-email", async (req, res) => {
   try {
     // Find user with the given token
     const result = await pool.query(
-      "UPDATE users SET email_verification_status = TRUE WHERE email_code = $1 RETURNING *",
+      "UPDATE email_verifications SET email_verification_status = TRUE WHERE email_code = $1 RETURNING *",
       [token]
     );
 
@@ -1081,24 +1180,37 @@ app.get("/verify-email", async (req, res) => {
 });
 
 app.post("/get-email-status", async (req, res) => {
+  const { userId } = req.body; // Destructure userId from req.body
+  console.log("Received userIdzxcvbn:", userId); // Correct logging
   try {
-    const { userId } = req.body; // Destructure userId from req.body
-    console.log("Received userId:", userId); // Correct logging
-
     if (!userId) {
       return res.status(400).json({ error: "User ID is required" });
     }
 
-    const result = await pool.query(
-      "SELECT email_verification_status FROM users WHERE email = $1",
+    const userResult = await pool.query(
+      "SELECT email FROM userss WHERE user_id = $1",
       [userId]
     );
 
-    if (result.rows.length === 0) {
+    if (userResult.rowCount === 0) {
+      console.log("User not found for user_id:", email);
       return res.status(404).json({ error: "User not found" });
     }
 
+    const userEmail = userResult.rows[0].email;
+
+    const result = await pool.query(
+      "SELECT email_verification_status FROM email_verifications WHERE email = $1 ORDER BY created_at DESC LIMIT 1",
+      [userEmail]
+    );
+    // console.log("Results.....", result);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No email verification found" });
+    }
+
     const emailVerified = result.rows[0].email_verification_status;
+    console.log("email status.....", emailVerified);
     res.json({ status: emailVerified ? "verified" : "pending" });
   } catch (error) {
     console.error("Error fetching status:", error);
