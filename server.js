@@ -515,7 +515,7 @@ app.post("/sendResetLink", async (req, res) => {
 
   try {
     // Check if the email exists
-    const result = await pool.query("SELECT id FROM users WHERE email = $1", [
+    const result = await pool.query("SELECT user_id FROM userss WHERE email = $1", [
       email,
     ]);
 
@@ -523,7 +523,7 @@ app.post("/sendResetLink", async (req, res) => {
       return res.status(400).json({ error: "Email not registered" });
     }
 
-    const userId = result.rows[0].id;
+    const userId = result.rows[0].user_id;
     const token = crypto.randomBytes(20).toString("hex");
     console.log("I reach here...", token, userId);
     // Store the token in the database with an expiration time
@@ -621,7 +621,7 @@ app.post("/resetPassword/:token", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Update user's password
-    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+    await pool.query("UPDATE userss SET password = $1 WHERE user_id = $2", [
       hashedPassword,
       userId,
     ]);
